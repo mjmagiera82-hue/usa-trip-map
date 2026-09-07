@@ -2,7 +2,7 @@
 <html lang="pl">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>USA 25 dni — interaktywna mapa v4</title>
+<title>USA 25 dni — interaktywna mapa v5</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 <style>
 html,body,#map{height:100%;margin:0;font-family:Arial,sans-serif}
@@ -21,6 +21,16 @@ button.active{background:#222;color:#fff}
 .badge{display:inline-block;padding:2px 5px;border-radius:5px;background:#eee;font-size:11px;margin-left:5px}
 .legend{font-size:12px;margin-top:6px}
 .status{font-size:11px;color:#666}
+
+.searchBox{margin-top:12px;padding:10px;background:#f7f8fa;border:1px solid #e1e4e8;border-radius:10px}
+.searchRow{display:flex;gap:5px;margin-top:6px}.searchRow input{flex:1;min-width:0;padding:8px;border:1px solid #bbb;border-radius:7px}
+.searchResult{padding:9px 0;border-top:1px solid #ddd}.searchResult:first-child{border-top:0}.searchResult b{display:block}
+.searchActions{display:flex;align-items:center;gap:4px;flex-wrap:wrap;margin-top:5px}.searchActions select{max-width:210px}
+.own{border-left:4px solid #7c3aed;padding-left:8px}.danger{border-color:#c33;color:#a00}.ok{color:#176b36}.warn{color:#a05a00}
+.userDot{display:inline-block;width:9px;height:9px;border-radius:50%;background:#7c3aed;margin-right:4px}
+#searchStatus{margin-top:6px}.resultAddr{font-size:11px;color:#666;line-height:1.3;margin-top:2px}
+.toolbar{display:flex;gap:4px;flex-wrap:wrap}.toolbar button{font-size:12px}
+
 @media(max-width:700px){#panel{width:calc(100% - 54px);max-height:48vh}}
 </style>
 </head>
@@ -42,103 +52,236 @@ button.active{background:#222;color:#fff}
 <p><b>Dzień</b></p>
 <select id="daySelect" onchange="showDay(this.value)"><option value="0">Wybierz dzień…</option></select>
 <div id="dayInfo"></div>
-<div id="metrics" class="metrics"><b>🚗 Odległości</b><br><span class="status">Ładuję dane drogowe…</span></div>
+<div class="searchBox">
+  <b>🔎 Znajdź i dodaj atrakcję</b>
+  <div class="small">Wyszukaj miejsce w USA, np. „Valley of Fire”, „Kanab” albo „Havasu Falls”.</div>
+  <form class="searchRow" onsubmit="event.preventDefault();searchPlaces()">
+    <input id="placeSearch" type="search" placeholder="Nazwa atrakcji lub miejsca…" autocomplete="off">
+    <button type="submit">Szukaj</button>
+  </form>
+  <div id="searchStatus" class="status"></div>
+  <div id="searchResults"></div>
+  <div class="small" style="margin-top:6px">Wyniki: © OpenStreetMap contributors / Nominatim. Nowe punkty są zapisywane lokalnie w tej przeglądarce.</div>
+</div>
+<div id="metrics" class="metrics"><b>🚗 Odległości</b><br><span class="status">Wybierz dzień albo kliknij „🚗 Odcinki”.</span></div>
 <p><b>Moja lista: <span id="count">0</span></b></p>
+<div class="toolbar"><button onclick="showMyPlaces()">📌 Pokaż moje</button><button onclick="exportMyPlaces()">⬇️ Eksportuj</button><button onclick="document.getElementById('importFile').click()">⬆️ Importuj</button><input id="importFile" type="file" accept="application/json,.json" style="display:none" onchange="importMyPlaces(this.files[0]);this.value=''"> </div>
 <div id="saved"></div>
-<div class="legend">🟢 park narodowy &nbsp; 🔵 miasto/baza &nbsp; 🟠 atrakcja</div>
+<div class="legend">🟢 park narodowy &nbsp; 🔵 miasto/baza &nbsp; 🟠 atrakcja &nbsp; <span class="userDot"></span>własny punkt</div>
 </aside>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-const P=[{"id": 0, "name": "Nowy Jork", "lat": 40.7128, "lon": -74.006, "type": "city", "day": 1, "desc": "Manhattan, Central Park, Brooklyn Bridge, Times Square."}, {"id": 1, "name": "Statua Wolności", "lat": 40.6892, "lon": -74.0445, "type": "attr", "day": 1, "desc": "Rejs lub Liberty Island; warto zarezerwować kilka godzin."}, {"id": 2, "name": "Central Park", "lat": 40.7829, "lon": -73.9654, "type": "attr", "day": 2, "desc": "Spacer i odpoczynek przed wyjazdem."}, {"id": 3, "name": "Top of the Rock", "lat": 40.759, "lon": -73.9845, "type": "attr", "day": 2, "desc": "Panorama Manhattanu."}, {"id": 4, "name": "Wodospad Niagara", "lat": 43.0962, "lon": -79.0377, "type": "attr", "day": 3, "desc": "Główny punkt dnia; warto zobaczyć wodospady z kilku punktów."}, {"id": 5, "name": "Niagara State Park", "lat": 43.0896, "lon": -79.062, "type": "attr", "day": 3, "desc": "Amerykańska strona wodospadów."}, {"id": 6, "name": "Chicago", "lat": 41.8781, "lon": -87.6298, "type": "city", "day": 4, "desc": "Millennium Park, Riverwalk, architektura centrum."}, {"id": 7, "name": "Millennium Park", "lat": 41.8826, "lon": -87.6226, "type": "attr", "day": 4, "desc": "Cloud Gate i centrum Chicago."}, {"id": 8, "name": "Chicago Riverwalk", "lat": 41.888, "lon": -87.628, "type": "attr", "day": 4, "desc": "Spacer nad rzeką i panorama wieżowców."}, {"id": 9, "name": "Yellowstone", "lat": 44.428, "lon": -110.5885, "type": "park", "day": 5, "desc": "Dzień 1: Old Faithful, Upper Geyser Basin, Grand Prismatic."}, {"id": 10, "name": "Grand Prismatic Spring", "lat": 44.525, "lon": -110.838, "type": "attr", "day": 5, "desc": "Najbardziej charakterystyczne źródło termalne Yellowstone."}, {"id": 11, "name": "Old Faithful", "lat": 44.4605, "lon": -110.8281, "type": "attr", "day": 5, "desc": "Słynny gejzer; sprawdź prognozowany czas erupcji."}, {"id": 12, "name": "Yellowstone Canyon", "lat": 44.7205, "lon": -110.496, "type": "attr", "day": 6, "desc": "Grand Canyon of the Yellowstone i Lower Falls."}, {"id": 13, "name": "Lamar Valley", "lat": 44.75, "lon": -110.12, "type": "attr", "day": 6, "desc": "Jedno z najlepszych miejsc na obserwację dzikich zwierząt."}, {"id": 14, "name": "Grand Teton", "lat": 43.7904, "lon": -110.6818, "type": "park", "day": 7, "desc": "Jenny Lake, Mormon Row, widoki na Teton Range."}, {"id": 15, "name": "Jenny Lake", "lat": 43.75, "lon": -110.72, "type": "attr", "day": 7, "desc": "Krótki spacer lub rejs; świetne widoki."}, {"id": 16, "name": "Jackson Hole", "lat": 43.4799, "lon": -110.7624, "type": "city", "day": 7, "desc": "Nocleg i miasteczko w stylu western."}, {"id": 17, "name": "Salt Lake City", "lat": 40.7608, "lon": -111.891, "type": "city", "day": 8, "desc": "Punkt organizacyjny przed Utah; możliwy nocleg."}, {"id": 18, "name": "Bonneville Salt Flats", "lat": 40.77, "lon": -113.89, "type": "attr", "day": 8, "desc": "Ogromne solnisko przy I-80; szybki przystanek."}, {"id": 19, "name": "Moab", "lat": 38.5733, "lon": -109.5498, "type": "city", "day": 9, "desc": "Najlepsza baza na Arches i Canyonlands."}, {"id": 20, "name": "Arches", "lat": 38.7331, "lon": -109.5925, "type": "park", "day": 9, "desc": "Delicate Arch, Windows, Balanced Rock."}, {"id": 21, "name": "Delicate Arch", "lat": 38.7436, "lon": -109.499, "type": "attr", "day": 9, "desc": "Ikona Utah; najlepszy punkt o zachodzie, jeśli czas pozwala."}, {"id": 22, "name": "Canyonlands", "lat": 38.2136, "lon": -109.9025, "type": "park", "day": 10, "desc": "Island in the Sky, Mesa Arch, Grand View Point."}, {"id": 23, "name": "Dead Horse Point", "lat": 38.386, "lon": -109.803, "type": "attr", "day": 10, "desc": "Panorama Colorado River; bardzo blisko Moab."}, {"id": 24, "name": "Goblin Valley", "lat": 38.573, "lon": -110.704, "type": "attr", "day": 11, "desc": "Niezwykłe hoodoo; dobry krótki przystanek po drodze."}, {"id": 25, "name": "Capitol Reef", "lat": 38.367, "lon": -111.2615, "type": "park", "day": 11, "desc": "Scenic Drive, Fruita, Goosenecks/Grand Wash zależnie od czasu."}, {"id": 26, "name": "Grand Staircase-Escalante", "lat": 37.372, "lon": -111.7, "type": "attr", "day": 12, "desc": "Ogromny region kanionów między Capitol Reef i Bryce."}, {"id": 27, "name": "Bryce Canyon", "lat": 37.6283, "lon": -112.1677, "type": "park", "day": 12, "desc": "Bryce Amphitheater: Sunrise, Sunset, Inspiration i Bryce Point."}, {"id": 28, "name": "Zion", "lat": 37.2982, "lon": -113.0263, "type": "park", "day": 13, "desc": "Zion Canyon, Riverside Walk, The Narrows lub Angels Landing."}, {"id": 29, "name": "Springdale", "lat": 37.1889, "lon": -112.9986, "type": "city", "day": 13, "desc": "Najwygodniejsza baza przy Zion."}, {"id": 30, "name": "Page", "lat": 36.9147, "lon": -111.448, "type": "city", "day": 14, "desc": "Baza dla Antelope Canyon, Horseshoe Bend i Lake Powell."}, {"id": 31, "name": "Horseshoe Bend", "lat": 36.879, "lon": -111.51, "type": "attr", "day": 14, "desc": "Zakręt Colorado River; krótki spacer z parkingu."}, {"id": 32, "name": "Antelope Canyon", "lat": 36.8619, "lon": -111.3743, "type": "attr", "day": 14, "desc": "Kanion szczelinowy; zwiedzanie z lokalnym przewodnikiem."}, {"id": 33, "name": "Lake Powell", "lat": 37.1878, "lon": -111.219, "type": "attr", "day": 14, "desc": "Widoki na Glen Canyon; opcjonalnie rejs."}, {"id": 34, "name": "Monument Valley", "lat": 36.998, "lon": -110.0985, "type": "attr", "day": 15, "desc": "Navajo Tribal Park; najlepiej przeznaczyć kilka godzin."}, {"id": 35, "name": "Mexican Hat", "lat": 37.153, "lon": -109.867, "type": "attr", "day": 15, "desc": "Krótki punkt widokowy na trasie przez południowo-wschodni Utah."}, {"id": 36, "name": "Grand Canyon South Rim", "lat": 36.1069, "lon": -112.1129, "type": "park", "day": 16, "desc": "Mather Point, Yavapai Point, Desert View; zachód słońca."}, {"id": 37, "name": "Grand Canyon Desert View", "lat": 36.044, "lon": -111.824, "type": "attr", "day": 16, "desc": "Wschodni wjazd i wieża widokowa."}, {"id": 38, "name": "Williams / Route 66", "lat": 35.2495, "lon": -112.191, "type": "attr", "day": 17, "desc": "Kawałek historycznej Route 66 przed Las Vegas."}, {"id": 39, "name": "Hoover Dam", "lat": 36.0161, "lon": -114.737, "type": "attr", "day": 17, "desc": "Tama na Colorado River; warto przeznaczyć 1–2 godziny."}, {"id": 40, "name": "Las Vegas", "lat": 36.1699, "lon": -115.1398, "type": "city", "day": 18, "desc": "Strip, Bellagio, Fremont Street."}, {"id": 41, "name": "Sphere Las Vegas", "lat": 36.1207, "lon": -115.1608, "type": "attr", "day": 18, "desc": "Wieczorne show/Experience; warto sprawdzić terminy."}, {"id": 42, "name": "Red Rock Canyon", "lat": 36.1357, "lon": -115.427, "type": "attr", "day": 18, "desc": "Opcjonalny szybki wypad z Las Vegas."}, {"id": 43, "name": "Death Valley", "lat": 36.5323, "lon": -116.9325, "type": "park", "day": 19, "desc": "Badwater Basin, Zabriskie Point, Mesquite Flat Sand Dunes."}, {"id": 44, "name": "Badwater Basin", "lat": 36.2301, "lon": -116.7677, "type": "attr", "day": 19, "desc": "Najniżej położony punkt Ameryki Północnej."}, {"id": 45, "name": "Mammoth Lakes", "lat": 37.6485, "lon": -118.9721, "type": "city", "day": 20, "desc": "Dobry nocleg przed Yosemite; góry Sierra Nevada."}, {"id": 46, "name": "Tioga Pass", "lat": 37.92, "lon": -119.257, "type": "attr", "day": 20, "desc": "Spektakularna droga do Yosemite — dostępność zależy od sezonu."}, {"id": 47, "name": "Yosemite", "lat": 37.8651, "lon": -119.5383, "type": "park", "day": 21, "desc": "Yosemite Valley, El Capitan, Yosemite Falls, Tunnel View."}, {"id": 48, "name": "Tunnel View", "lat": 37.715, "lon": -119.677, "type": "attr", "day": 21, "desc": "Klasyczna panorama Yosemite Valley."}, {"id": 49, "name": "Mariposa Grove", "lat": 37.505, "lon": -119.61, "type": "attr", "day": 22, "desc": "Gigantyczne sekwoje; opcjonalnie zależnie od czasu."}, {"id": 50, "name": "Sequoia", "lat": 36.4864, "lon": -118.5658, "type": "park", "day": 22, "desc": "General Sherman Tree i Giant Forest."}, {"id": 51, "name": "Kings Canyon", "lat": 36.887, "lon": -118.555, "type": "park", "day": 22, "desc": "Opcjonalne przedłużenie dnia w rejonie sekwoi."}, {"id": 52, "name": "San Francisco", "lat": 37.7749, "lon": -122.4194, "type": "city", "day": 23, "desc": "Golden Gate, Lombard Street, Fisherman’s Wharf — tylko jeśli akceptujesz objazd."}, {"id": 53, "name": "Golden Gate Bridge", "lat": 37.8199, "lon": -122.4783, "type": "attr", "day": 23, "desc": "Najbardziej znany punkt San Francisco."}, {"id": 54, "name": "Joshua Tree", "lat": 34.1347, "lon": -116.3131, "type": "park", "day": 23, "desc": "Opcjonalny park; sensowny tylko jeśli rezygnujemy z San Francisco."}, {"id": 55, "name": "Los Angeles", "lat": 34.0522, "lon": -118.2437, "type": "city", "day": 24, "desc": "Santa Monica, Griffith Observatory, Hollywood."}, {"id": 56, "name": "Santa Monica", "lat": 34.0092, "lon": -118.4976, "type": "attr", "day": 24, "desc": "Koniec Route 66, molo i plaża."}, {"id": 57, "name": "Griffith Observatory", "lat": 34.1184, "lon": -118.3004, "type": "attr", "day": 25, "desc": "Panorama Los Angeles; dobry finał podróży."}, {"id": 58, "name": "Hollywood Sign", "lat": 34.1341, "lon": -118.3215, "type": "attr", "day": 25, "desc": "Punkt widokowy na znak Hollywood."}, {"id": 59, "name": "Universal Studios Hollywood", "lat": 34.1381, "lon": -118.3534, "type": "attr", "day": 25, "desc": "Opcjonalnie zamiast części dnia miejskiego."}];
+const BASE_P=[{"id": 0, "name": "Nowy Jork", "lat": 40.7128, "lon": -74.006, "type": "city", "day": 1, "desc": "Manhattan, Central Park, Brooklyn Bridge, Times Square."}, {"id": 1, "name": "Statua Wolności", "lat": 40.6892, "lon": -74.0445, "type": "attr", "day": 1, "desc": "Rejs lub Liberty Island; warto zarezerwować kilka godzin."}, {"id": 2, "name": "Central Park", "lat": 40.7829, "lon": -73.9654, "type": "attr", "day": 2, "desc": "Spacer i odpoczynek przed wyjazdem."}, {"id": 3, "name": "Top of the Rock", "lat": 40.759, "lon": -73.9845, "type": "attr", "day": 2, "desc": "Panorama Manhattanu."}, {"id": 4, "name": "Wodospad Niagara", "lat": 43.0962, "lon": -79.0377, "type": "attr", "day": 3, "desc": "Główny punkt dnia; warto zobaczyć wodospady z kilku punktów."}, {"id": 5, "name": "Niagara State Park", "lat": 43.0896, "lon": -79.062, "type": "attr", "day": 3, "desc": "Amerykańska strona wodospadów."}, {"id": 6, "name": "Chicago", "lat": 41.8781, "lon": -87.6298, "type": "city", "day": 4, "desc": "Millennium Park, Riverwalk, architektura centrum."}, {"id": 7, "name": "Millennium Park", "lat": 41.8826, "lon": -87.6226, "type": "attr", "day": 4, "desc": "Cloud Gate i centrum Chicago."}, {"id": 8, "name": "Chicago Riverwalk", "lat": 41.888, "lon": -87.628, "type": "attr", "day": 4, "desc": "Spacer nad rzeką i panorama wieżowców."}, {"id": 9, "name": "Yellowstone", "lat": 44.428, "lon": -110.5885, "type": "park", "day": 5, "desc": "Dzień 1: Old Faithful, Upper Geyser Basin, Grand Prismatic."}, {"id": 10, "name": "Grand Prismatic Spring", "lat": 44.525, "lon": -110.838, "type": "attr", "day": 5, "desc": "Najbardziej charakterystyczne źródło termalne Yellowstone."}, {"id": 11, "name": "Old Faithful", "lat": 44.4605, "lon": -110.8281, "type": "attr", "day": 5, "desc": "Słynny gejzer; sprawdź prognozowany czas erupcji."}, {"id": 12, "name": "Yellowstone Canyon", "lat": 44.7205, "lon": -110.496, "type": "attr", "day": 6, "desc": "Grand Canyon of the Yellowstone i Lower Falls."}, {"id": 13, "name": "Lamar Valley", "lat": 44.75, "lon": -110.12, "type": "attr", "day": 6, "desc": "Jedno z najlepszych miejsc na obserwację dzikich zwierząt."}, {"id": 14, "name": "Grand Teton", "lat": 43.7904, "lon": -110.6818, "type": "park", "day": 7, "desc": "Jenny Lake, Mormon Row, widoki na Teton Range."}, {"id": 15, "name": "Jenny Lake", "lat": 43.75, "lon": -110.72, "type": "attr", "day": 7, "desc": "Krótki spacer lub rejs; świetne widoki."}, {"id": 16, "name": "Jackson Hole", "lat": 43.4799, "lon": -110.7624, "type": "city", "day": 7, "desc": "Nocleg i miasteczko w stylu western."}, {"id": 17, "name": "Salt Lake City", "lat": 40.7608, "lon": -111.891, "type": "city", "day": 8, "desc": "Punkt organizacyjny przed Utah; możliwy nocleg."}, {"id": 18, "name": "Bonneville Salt Flats", "lat": 40.77, "lon": -113.89, "type": "attr", "day": 8, "desc": "Ogromne solnisko przy I-80; szybki przystanek."}, {"id": 19, "name": "Moab", "lat": 38.5733, "lon": -109.5498, "type": "city", "day": 9, "desc": "Najlepsza baza na Arches i Canyonlands."}, {"id": 20, "name": "Arches", "lat": 38.7331, "lon": -109.5925, "type": "park", "day": 9, "desc": "Delicate Arch, Windows, Balanced Rock."}, {"id": 21, "name": "Delicate Arch", "lat": 38.7436, "lon": -109.499, "type": "attr", "day": 9, "desc": "Ikona Utah; najlepszy punkt o zachodzie, jeśli czas pozwala."}, {"id": 22, "name": "Canyonlands", "lat": 38.2136, "lon": -109.9025, "type": "park", "day": 10, "desc": "Island in the Sky, Mesa Arch, Grand View Point."}, {"id": 23, "name": "Dead Horse Point", "lat": 38.386, "lon": -109.803, "type": "attr", "day": 10, "desc": "Panorama Colorado River; bardzo blisko Moab."}, {"id": 24, "name": "Goblin Valley", "lat": 38.573, "lon": -110.704, "type": "attr", "day": 11, "desc": "Niezwykłe hoodoo; dobry krótki przystanek po drodze."}, {"id": 25, "name": "Capitol Reef", "lat": 38.367, "lon": -111.2615, "type": "park", "day": 11, "desc": "Scenic Drive, Fruita, Goosenecks/Grand Wash zależnie od czasu."}, {"id": 26, "name": "Grand Staircase-Escalante", "lat": 37.372, "lon": -111.7, "type": "attr", "day": 12, "desc": "Ogromny region kanionów między Capitol Reef i Bryce."}, {"id": 27, "name": "Bryce Canyon", "lat": 37.6283, "lon": -112.1677, "type": "park", "day": 12, "desc": "Bryce Amphitheater: Sunrise, Sunset, Inspiration i Bryce Point."}, {"id": 28, "name": "Zion", "lat": 37.2982, "lon": -113.0263, "type": "park", "day": 13, "desc": "Zion Canyon, Riverside Walk, The Narrows lub Angels Landing."}, {"id": 29, "name": "Springdale", "lat": 37.1889, "lon": -112.9986, "type": "city", "day": 13, "desc": "Najwygodniejsza baza przy Zion."}, {"id": 30, "name": "Page", "lat": 36.9147, "lon": -111.448, "type": "city", "day": 14, "desc": "Baza dla Antelope Canyon, Horseshoe Bend i Lake Powell."}, {"id": 31, "name": "Horseshoe Bend", "lat": 36.879, "lon": -111.51, "type": "attr", "day": 14, "desc": "Zakręt Colorado River; krótki spacer z parkingu."}, {"id": 32, "name": "Antelope Canyon", "lat": 36.8619, "lon": -111.3743, "type": "attr", "day": 14, "desc": "Kanion szczelinowy; zwiedzanie z lokalnym przewodnikiem."}, {"id": 33, "name": "Lake Powell", "lat": 37.1878, "lon": -111.219, "type": "attr", "day": 14, "desc": "Widoki na Glen Canyon; opcjonalnie rejs."}, {"id": 34, "name": "Monument Valley", "lat": 36.998, "lon": -110.0985, "type": "attr", "day": 15, "desc": "Navajo Tribal Park; najlepiej przeznaczyć kilka godzin."}, {"id": 35, "name": "Mexican Hat", "lat": 37.153, "lon": -109.867, "type": "attr", "day": 15, "desc": "Krótki punkt widokowy na trasie przez południowo-wschodni Utah."}, {"id": 36, "name": "Grand Canyon South Rim", "lat": 36.1069, "lon": -112.1129, "type": "park", "day": 16, "desc": "Mather Point, Yavapai Point, Desert View; zachód słońca."}, {"id": 37, "name": "Grand Canyon Desert View", "lat": 36.044, "lon": -111.824, "type": "attr", "day": 16, "desc": "Wschodni wjazd i wieża widokowa."}, {"id": 38, "name": "Williams / Route 66", "lat": 35.2495, "lon": -112.191, "type": "attr", "day": 17, "desc": "Kawałek historycznej Route 66 przed Las Vegas."}, {"id": 39, "name": "Hoover Dam", "lat": 36.0161, "lon": -114.737, "type": "attr", "day": 17, "desc": "Tama na Colorado River; warto przeznaczyć 1–2 godziny."}, {"id": 40, "name": "Las Vegas", "lat": 36.1699, "lon": -115.1398, "type": "city", "day": 18, "desc": "Strip, Bellagio, Fremont Street."}, {"id": 41, "name": "Sphere Las Vegas", "lat": 36.1207, "lon": -115.1608, "type": "attr", "day": 18, "desc": "Wieczorne show/Experience; warto sprawdzić terminy."}, {"id": 42, "name": "Red Rock Canyon", "lat": 36.1357, "lon": -115.427, "type": "attr", "day": 18, "desc": "Opcjonalny szybki wypad z Las Vegas."}, {"id": 43, "name": "Death Valley", "lat": 36.5323, "lon": -116.9325, "type": "park", "day": 19, "desc": "Badwater Basin, Zabriskie Point, Mesquite Flat Sand Dunes."}, {"id": 44, "name": "Badwater Basin", "lat": 36.2301, "lon": -116.7677, "type": "attr", "day": 19, "desc": "Najniżej położony punkt Ameryki Północnej."}, {"id": 45, "name": "Mammoth Lakes", "lat": 37.6485, "lon": -118.9721, "type": "city", "day": 20, "desc": "Dobry nocleg przed Yosemite; góry Sierra Nevada."}, {"id": 46, "name": "Tioga Pass", "lat": 37.92, "lon": -119.257, "type": "attr", "day": 20, "desc": "Spektakularna droga do Yosemite — dostępność zależy od sezonu."}, {"id": 47, "name": "Yosemite", "lat": 37.8651, "lon": -119.5383, "type": "park", "day": 21, "desc": "Yosemite Valley, El Capitan, Yosemite Falls, Tunnel View."}, {"id": 48, "name": "Tunnel View", "lat": 37.715, "lon": -119.677, "type": "attr", "day": 21, "desc": "Klasyczna panorama Yosemite Valley."}, {"id": 49, "name": "Mariposa Grove", "lat": 37.505, "lon": -119.61, "type": "attr", "day": 22, "desc": "Gigantyczne sekwoje; opcjonalnie zależnie od czasu."}, {"id": 50, "name": "Sequoia", "lat": 36.4864, "lon": -118.5658, "type": "park", "day": 22, "desc": "General Sherman Tree i Giant Forest."}, {"id": 51, "name": "Kings Canyon", "lat": 36.887, "lon": -118.555, "type": "park", "day": 22, "desc": "Opcjonalne przedłużenie dnia w rejonie sekwoi."}, {"id": 52, "name": "San Francisco", "lat": 37.7749, "lon": -122.4194, "type": "city", "day": 23, "desc": "Golden Gate, Lombard Street, Fisherman’s Wharf — tylko jeśli akceptujesz objazd."}, {"id": 53, "name": "Golden Gate Bridge", "lat": 37.8199, "lon": -122.4783, "type": "attr", "day": 23, "desc": "Najbardziej znany punkt San Francisco."}, {"id": 54, "name": "Joshua Tree", "lat": 34.1347, "lon": -116.3131, "type": "park", "day": 23, "desc": "Opcjonalny park; sensowny tylko jeśli rezygnujemy z San Francisco."}, {"id": 55, "name": "Los Angeles", "lat": 34.0522, "lon": -118.2437, "type": "city", "day": 24, "desc": "Santa Monica, Griffith Observatory, Hollywood."}, {"id": 56, "name": "Santa Monica", "lat": 34.0092, "lon": -118.4976, "type": "attr", "day": 24, "desc": "Koniec Route 66, molo i plaża."}, {"id": 57, "name": "Griffith Observatory", "lat": 34.1184, "lon": -118.3004, "type": "attr", "day": 25, "desc": "Panorama Los Angeles; dobry finał podróży."}, {"id": 58, "name": "Hollywood Sign", "lat": 34.1341, "lon": -118.3215, "type": "attr", "day": 25, "desc": "Punkt widokowy na znak Hollywood."}, {"id": 59, "name": "Universal Studios Hollywood", "lat": 34.1381, "lon": -118.3534, "type": "attr", "day": 25, "desc": "Opcjonalnie zamiast części dnia miejskiego."}];
 const D=[{"day": 1, "title": "Nowy Jork — Manhattan", "desc": "Central Park / Times Square / Manhattan"}, {"day": 2, "title": "Nowy Jork — klasyki", "desc": "Statua Wolności + panorama miasta"}, {"day": 3, "title": "Nowy Jork → Niagara", "desc": "Przejazd i Niagara"}, {"day": 4, "title": "Niagara → Chicago", "desc": "Wodospady rano, przejazd do Chicago"}, {"day": 5, "title": "Chicago → Yellowstone", "desc": "Chicago rano + lot na Zachód"}, {"day": 6, "title": "Yellowstone — gejzery", "desc": "Old Faithful + Grand Prismatic"}, {"day": 7, "title": "Yellowstone → Grand Teton", "desc": "Kanion + Lamar / przejazd do Teton"}, {"day": 8, "title": "Grand Teton → Salt Lake City", "desc": "Jenny Lake + przejazd"}, {"day": 9, "title": "Salt Lake City → Moab", "desc": "Bonneville + dojazd do Moab"}, {"day": 10, "title": "Arches", "desc": "Cały dzień na Arches"}, {"day": 11, "title": "Canyonlands + Moab", "desc": "Island in the Sky + Dead Horse Point"}, {"day": 12, "title": "Capitol Reef → Bryce", "desc": "Goblin Valley + Capitol Reef + Bryce"}, {"day": 13, "title": "Bryce → Zion", "desc": "Bryce rano + Zion"}, {"day": 14, "title": "Zion → Page", "desc": "Zion rano + dojazd do Page"}, {"day": 15, "title": "Page → Monument Valley", "desc": "Antelope + Horseshoe + Monument Valley"}, {"day": 16, "title": "Grand Canyon", "desc": "South Rim + zachód słońca"}, {"day": 17, "title": "Grand Canyon → Las Vegas", "desc": "Route 66 + Hoover Dam"}, {"day": 18, "title": "Las Vegas", "desc": "Strip + Sphere"}, {"day": 19, "title": "Las Vegas → Death Valley", "desc": "Death Valley — dzień pustynny"}, {"day": 20, "title": "Death Valley → Mammoth", "desc": "Przejazd przez Sierra; Tioga zależnie od sezonu"}, {"day": 21, "title": "Yosemite", "desc": "Cały dzień Yosemite"}, {"day": 22, "title": "Sequoia / Kings Canyon", "desc": "Gigantyczne drzewa"}, {"day": 23, "title": "Dylemat: SF czy Joshua Tree", "desc": "SF to duży objazd; Joshua Tree lepiej pasuje do trasy"}, {"day": 24, "title": "Los Angeles", "desc": "Santa Monica + Hollywood"}, {"day": 25, "title": "Los Angeles", "desc": "Griffith + zapas na opóźnienia / lot"}];
 const R=[{"from": 0, "to": 4}, {"from": 4, "to": 6}, {"from": 6, "to": 9}, {"from": 9, "to": 14}, {"from": 14, "to": 17}, {"from": 17, "to": 19}, {"from": 19, "to": 20}, {"from": 20, "to": 22}, {"from": 22, "to": 25}, {"from": 25, "to": 27}, {"from": 27, "to": 28}, {"from": 28, "to": 30}, {"from": 30, "to": 34}, {"from": 34, "to": 36}, {"from": 36, "to": 39}, {"from": 39, "to": 40}, {"from": 40, "to": 43}, {"from": 43, "to": 45}, {"from": 45, "to": 47}, {"from": 47, "to": 50}, {"from": 50, "to": 55}];
+
+const STORAGE_POINTS='usaTripCustomPointsV5';
+const STORAGE_SELECTED='usaTripSelectedV5';
+const STORAGE_SEARCH='usaTripSearchCacheV5';
+let customPoints=loadJSON(STORAGE_POINTS,[]);
+let P=[];
+let selected=new Set(loadJSON(STORAGE_SELECTED,[]).map(String));
+let markers=new Map(), routeLayers=[], dayRouteLayer=null, currentFilter='all';
+let searchResults=[], lastSearchAt=0;
+
 const map=L.map('map').setView([39.5,-98.35],4);
 L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
  {attribution:'© OpenStreetMap contributors'}).addTo(map);
 
-let markers=[], selected=new Set(), currentFilter='all', routeLayers=[];
-const pointById=Object.fromEntries(P.map(p=>[p.id,p]));
-function icon(t){
- let c=t==='park'?'#2e8b57':t==='city'?'#2b6cb0':'#d97706';
- return L.divIcon({className:'',html:`<div style="background:${c};width:18px;height:18px;border-radius:50%;border:2px solid white;box-shadow:0 1px 5px #555"></div>`,iconSize:[22,22],iconAnchor:[11,11]});
+function loadJSON(key,fallback){try{const v=JSON.parse(localStorage.getItem(key));return v??fallback}catch(e){return fallback}}
+function saveJSON(key,value){localStorage.setItem(key,JSON.stringify(value))}
+function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
+function domKey(id){return String(id).replace(/[^a-zA-Z0-9_-]/g,'_')}
+function keyOf(p){return String(p.id)}
+function getPoint(id){return P.find(p=>keyOf(p)===String(id))}
+function icon(t,own=false){
+ const c=own?'#7c3aed':t==='park'?'#2e8b57':t==='city'?'#2b6cb0':'#d97706';
+ return L.divIcon({className:'',html:`<div style="background:${c};width:${own?20:18}px;height:${own?20:18}px;border-radius:50%;border:2px solid white;box-shadow:0 1px 5px #555"></div>`,iconSize:[24,24],iconAnchor:[12,12]});
 }
-function popup(i){
- const p=P[i];
+function rebuildPoints(){
+ customPoints=customPoints.filter(p=>Number.isFinite(+p.lat)&&Number.isFinite(+p.lon)&&p.day>=1&&p.day<=25);
+ P=[...BASE_P.map(p=>({...p,userAdded:false})),...customPoints.map(p=>({...p,userAdded:true}))];
+ saveJSON(STORAGE_POINTS,customPoints);
+}
+function popupFor(p){
+ const k=domKey(p.id), id=JSON.stringify(keyOf(p));
  return `<div class="popup"><h3>${esc(p.name)}</h3>
- <div class="status">Dzień ${p.day}</div>
- <img id="img-${i}" src="" alt="Ładowanie zdjęcia…">
- <p>${esc(p.desc)}</p>
- <button onclick="toggle(${i},true)">⭐ Mam na liście</button>
- <a id="big-${i}" href="#" target="_blank" style="display:none">Otwórz większe zdjęcie ↗</a>
+ <div class="status">Dzień ${p.day}${p.userAdded?' · własny punkt':''}</div>
+ <img id="img-${k}" src="" alt="Ładowanie zdjęcia…">
+ <p>${esc(p.desc||'Miejsce dodane z wyszukiwarki OpenStreetMap.')}</p>
+ <button onclick='toggleById(${id},true)'>⭐ Mam na liście</button>
+ ${p.userAdded?`<button class="danger" onclick='removeCustom(${id})'>🗑 Usuń z mapy</button>`:''}
+ <a id="big-${k}" href="#" target="_blank" style="display:none">Otwórz większe zdjęcie ↗</a>
  <div class="status">Zdjęcie wyszukiwane automatycznie z Wikimedia Commons.</div></div>`;
 }
-function esc(s){return s.replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
-P.forEach((p,i)=>{
- let m=L.marker([p.lat,p.lon],{icon:icon(p.type)}).addTo(map);
- m.bindPopup(popup(i),{maxWidth:300});
- m.on('popupopen',()=>loadImage(i));
- markers.push(m);
-});
-function loadImage(i){
- const p=P[i], img=document.getElementById('img-'+i), big=document.getElementById('big-'+i);
- if(!img || img.dataset.loaded) return;
+function rebuildMarkers(){
+ markers.forEach(m=>m.remove()); markers.clear();
+ P.forEach(p=>{
+   const m=L.marker([p.lat,p.lon],{icon:icon(p.type,p.userAdded)}).addTo(map);
+   m.bindPopup(popupFor(p),{maxWidth:310});
+   m.on('popupopen',()=>loadImageById(p.id));
+   markers.set(keyOf(p),m);
+ });
+ applyFilter(); drawMainRoute();
+}
+function loadImageById(id){
+ const p=getPoint(id); if(!p)return;
+ const k=domKey(p.id),img=document.getElementById('img-'+k),big=document.getElementById('big-'+k);
+ if(!img||img.dataset.loaded)return;
  const q=encodeURIComponent(p.name+' USA');
  const url='https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch='+q+
    '&gsrnamespace=6&gsrlimit=1&prop=imageinfo&iiprop=url|extmetadata&iiurlwidth=700&format=json&origin=*';
  fetch(url).then(r=>r.json()).then(j=>{
    const pages=j.query&&j.query.pages?Object.values(j.query.pages):[];
-   if(pages.length && pages[0].imageinfo && pages[0].imageinfo[0]){
-     const info=pages[0].imageinfo[0], u=info.thumburl||info.url;
-     img.src=u; img.dataset.loaded='1'; big.href=info.url; big.style.display='inline-block';
-   } else { img.alt='Brak zdjęcia w Wikimedia Commons'; }
- }).catch(()=>{img.alt='Nie udało się załadować zdjęcia';});
+   if(pages.length&&pages[0].imageinfo&&pages[0].imageinfo[0]){
+     const info=pages[0].imageinfo[0],u=info.thumburl||info.url;
+     img.src=u;img.dataset.loaded='1';big.href=info.url;big.style.display='inline-block';
+   }else img.alt='Brak zdjęcia w Wikimedia Commons';
+ }).catch(()=>img.alt='Nie udało się załadować zdjęcia');
 }
-function setFilter(t){currentFilter=t;P.forEach((p,i)=>markers[i].setOpacity(t==='all'||p.type===t?1:0.12));}
-function fitAll(){map.fitBounds(P.map(p=>[p.lat,p.lon]),{padding:[30,30]});}
-function fitWest(){map.fitBounds(P.filter(p=>p.lon<-100).map(p=>[p.lat,p.lon]),{padding:[30,30]});}
-function toggle(i,v){if(v)selected.add(i);else selected.delete(i);document.getElementById('count').textContent=selected.size;renderSaved();}
-function renderSaved(){document.getElementById('saved').innerHTML=[...selected].map(i=>`<div class="listitem"><b>${esc(P[i].name)}</b><br>Dzień ${P[i].day}</div>`).join('');}
-D.forEach(d=>{let o=document.createElement('option');o.value=d.day;o.textContent=`Dzień ${d.day} — ${d.title}`;document.getElementById('daySelect').appendChild(o);});
+function drawMainRoute(){
+ routeLayers.forEach(l=>l.remove());routeLayers=[];
+ for(const s of R){
+   const a=getPoint(s.from),b=getPoint(s.to); if(!a||!b)continue;
+   const flight=a.name==='Chicago';
+   routeLayers.push(L.polyline([[a.lat,a.lon],[b.lat,b.lon]],{weight:3,opacity:.55,dashArray:flight?'9 9':null}).addTo(map));
+ }
+}
+function setFilter(t){currentFilter=t;applyFilter()}
+function applyFilter(){P.forEach(p=>{const m=markers.get(keyOf(p));if(m)m.setOpacity(currentFilter==='all'||p.type===currentFilter?1:0.12)})}
+function fitAll(){map.fitBounds(P.map(p=>[p.lat,p.lon]),{padding:[30,30]})}
+function fitWest(){map.fitBounds(P.filter(p=>p.lon<-100).map(p=>[p.lat,p.lon]),{padding:[30,30]})}
+function toggleById(id,v){const k=String(id);v?selected.add(k):selected.delete(k);saveJSON(STORAGE_SELECTED,[...selected]);renderSaved()}
+function renderSaved(){
+ const rows=[...selected].map(id=>getPoint(id)).filter(Boolean);
+ document.getElementById('count').textContent=rows.length;
+ document.getElementById('saved').innerHTML=rows.length?rows.map(p=>`<div class="listitem ${p.userAdded?'own':''}"><b>${esc(p.name)}</b>Dzień ${p.day}${p.userAdded?' · własny':''}<br><button onclick='focusPoint(${JSON.stringify(keyOf(p))})'>Pokaż</button><button onclick='toggleById(${JSON.stringify(keyOf(p))},false)'>Usuń z listy</button></div>`).join(''):'<div class="status">Lista jest pusta.</div>';
+}
+function focusPoint(id){const p=getPoint(id),m=markers.get(String(id));if(!p||!m)return;map.setView([p.lat,p.lon],Math.max(map.getZoom(),11));m.openPopup()}
+function showMyPlaces(){const a=P.filter(p=>p.userAdded);if(a.length)map.fitBounds(a.map(p=>[p.lat,p.lon]),{padding:[60,60]});else alert('Nie masz jeszcze własnych punktów.')}
+
+D.forEach(d=>{const o=document.createElement('option');o.value=d.day;o.textContent=`Dzień ${d.day} — ${d.title}`;document.getElementById('daySelect').appendChild(o)});
+function hav(a,b){const r=6371,rad=x=>x*Math.PI/180,dLat=rad(b.lat-a.lat),dLon=rad(b.lon-a.lon),la1=rad(a.lat),la2=rad(b.lat);const h=Math.sin(dLat/2)**2+Math.cos(la1)*Math.cos(la2)*Math.sin(dLon/2)**2;return 2*r*Math.asin(Math.sqrt(h))}
+function orderedDayPoints(day){
+ let order=BASE_P.filter(p=>p.day===day).map(p=>P.find(x=>keyOf(x)===keyOf(p))).filter(Boolean);
+ const own=P.filter(p=>p.userAdded&&p.day===day);
+ for(const n of own){
+   if(!order.length){order.push(n);continue}
+   let best=order.length,bestCost=Infinity;
+   for(let pos=0;pos<=order.length;pos++){
+     let cost;
+     if(pos===0)cost=hav(n,order[0]);
+     else if(pos===order.length)cost=hav(order[order.length-1],n);
+     else cost=hav(order[pos-1],n)+hav(n,order[pos])-hav(order[pos-1],order[pos]);
+     if(cost<bestCost){bestCost=cost;best=pos}
+   }
+   order.splice(best,0,n);
+ }
+ return order;
+}
 function showDay(d){
- d=+d;if(!d){document.getElementById('dayInfo').innerHTML='';return;}
- const ids=P.map((p,i)=>p.day===d?i:null).filter(x=>x!==null);
- if(ids.length) map.fitBounds(ids.map(i=>[P[i].lat,P[i].lon]),{padding:[70,70]});
- document.getElementById('dayInfo').innerHTML=`<div class="day"><b>Dzień ${d}: ${esc(D[d-1].title)}</b>${esc(D[d-1].desc)}</div>`;
- document.getElementById('metrics').innerHTML='<b>🚗 Dzień '+d+'</b><br><span class="status">Obliczam przejazdy drogowe…</span>';
+ d=+d;if(!d){document.getElementById('dayInfo').innerHTML='';if(dayRouteLayer){dayRouteLayer.remove();dayRouteLayer=null}return}
+ const pts=orderedDayPoints(d);
+ if(pts.length)map.fitBounds(pts.map(p=>[p.lat,p.lon]),{padding:[70,70]});
+ if(dayRouteLayer)dayRouteLayer.remove();
+ if(pts.length>1)dayRouteLayer=L.polyline(pts.map(p=>[p.lat,p.lon]),{weight:5,opacity:.7,dashArray:'4 8'}).addTo(map);
+ const own=pts.filter(p=>p.userAdded).length;
+ document.getElementById('dayInfo').innerHTML=`<div class="day"><b>Dzień ${d}: ${esc(D[d-1].title)}</b>${esc(D[d-1].desc)}${own?`<br><span class="ok">+ ${own} własne ${own===1?'miejsce':'miejsca'}</span>`:''}</div>`;
+ document.getElementById('metrics').innerHTML='<b>🚗 Dzień '+d+'</b><br><span class="status">Obliczam przejazdy drogowe wraz z dodanymi miejscami…</span>';
  loadDayMetrics(d);
 }
 async function routeMetric(a,b){
  const url=`https://router.project-osrm.org/route/v1/driving/${a.lon},${a.lat};${b.lon},${b.lat}?overview=false`;
- const r=await fetch(url); const j=await r.json();
- if(j.routes&&j.routes[0]) return {km:j.routes[0].distance/1000,min:j.routes[0].duration/60};
- return null;
+ try{const r=await fetch(url);const j=await r.json();if(j.routes&&j.routes[0])return{km:j.routes[0].distance/1000,min:j.routes[0].duration/60}}catch(e){}return null;
 }
-function fmtMin(m){let h=Math.floor(m/60),mm=Math.round(m%60);return h?`${h} h ${mm} min`:`${mm} min`;}
+function fmtMin(m){const h=Math.floor(m/60),mm=Math.round(m%60);return h?`${h} h ${mm} min`:`${mm} min`}
 async function loadDayMetrics(day){
- let ids=P.map((p,i)=>p.day===day?i:null).filter(x=>x!==null);
- // Sort by longitude/latitude roughly along westward trip; for local points, sort by point id.
- ids.sort((a,b)=>a-b);
- let totalKm=0,totalMin=0, rows=[];
- for(let k=0;k<ids.length-1;k++){
-   const a=P[ids[k]],b=P[ids[k+1]];
-   const m=await routeMetric(a,b); if(m){totalKm+=m.km;totalMin+=m.min;rows.push(`${esc(a.name)} → ${esc(b.name)}: <b>${m.km.toFixed(0)} km</b>, ${fmtMin(m.min)}</b>`);}
+ const pts=orderedDayPoints(day);let totalKm=0,totalMin=0,rows=[];
+ for(let k=0;k<pts.length-1;k++){
+   const a=pts[k],b=pts[k+1],m=await routeMetric(a,b);
+   if(m){totalKm+=m.km;totalMin+=m.min;rows.push(`${esc(a.name)} → ${esc(b.name)}: <b>${m.km.toFixed(0)} km</b>, ${fmtMin(m.min)}`)}
  }
- let extra='';
- if(day===5) extra='✈️ Chicago → Yellowstone: lot; czas lotu zależy od połączenia.';
- document.getElementById('metrics').innerHTML=`<b>🚗 Dzień ${day}</b><br>${extra}<br>${rows.join('<br>')}<br><b>Razem lokalnie: ${totalKm.toFixed(0)} km / ${fmtMin(totalMin)}</b>`;
+ let extra=day===5?'✈️ Chicago → Yellowstone: lot; czas lotu zależy od połączenia.<br>':'';
+ document.getElementById('metrics').innerHTML=`<b>🚗 Dzień ${day}</b><br>${extra}${rows.join('<br>')}${rows.length?'<br>':''}<b>Razem lokalnie: ${totalKm.toFixed(0)} km / ${fmtMin(totalMin)}</b><br><span class="status">Własne punkty są automatycznie wstawiane w kolejność dnia tak, aby ograniczyć objazd.</span>`;
 }
 async function showRouteMetrics(){
  document.getElementById('metrics').innerHTML='<b>🚗 Główne odcinki</b><br><span class="status">Obliczam aktualne trasy drogowe…</span>';
  let total=0,mins=0,html='';
  for(const s of R){
-   const a=pointById[s.from],b=pointById[s.to];
-   if(a.name==='Chicago'){html+=`<div class="routeRow">✈️ <b>${esc(a.name)} → ${esc(b.name)}</b><br>Przelot — odległość lotnicza, bez czasu dojazdu na lotnisko.</div>`;continue;}
+   const a=getPoint(s.from),b=getPoint(s.to);if(!a||!b)continue;
+   if(a.name==='Chicago'){html+=`<div class="routeRow">✈️ <b>${esc(a.name)} → ${esc(b.name)}</b><br>Przelot — bez odległości drogowej.</div>`;continue}
    const m=await routeMetric(a,b);
-   if(m){total+=m.km;mins+=m.min;html+=`<div class="routeRow"><b>${esc(a.name)} → ${esc(b.name)}</b><br>📏 ${m.km.toFixed(0)} km &nbsp; ⏱️ ${fmtMin(m.min)}<br><a target="_blank" href="https://www.google.com/maps/dir/?api=1&origin=${a.lat},${a.lon}&destination=${b.lat},${b.lon}">Nawiguj w Google Maps ↗</a></div>`;}
+   if(m){total+=m.km;mins+=m.min;html+=`<div class="routeRow"><b>${esc(a.name)} → ${esc(b.name)}</b><br>📏 ${m.km.toFixed(0)} km &nbsp; ⏱️ ${fmtMin(m.min)}<br><a target="_blank" href="https://www.google.com/maps/dir/?api=1&origin=${a.lat},${a.lon}&destination=${b.lat},${b.lon}">Nawiguj w Google Maps ↗</a></div>`}
  }
- document.getElementById('metrics').innerHTML=`<b>🚗 Główne odcinki</b>${html}<hr><b>Łącznie autem: około ${total.toFixed(0)} km / ${fmtMin(mins)}</b>`;
+ document.getElementById('metrics').innerHTML=`<b>🚗 Główne odcinki</b>${html}<hr><b>Łącznie autem: około ${total.toFixed(0)} km / ${fmtMin(mins)}</b><br><span class="status">Dodane atrakcje są uwzględniane po wybraniu konkretnego dnia.</span>`;
 }
+
+function normalizeName(s){return String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]+/g,' ').trim()}
+function resultName(r){return r.namedetails?.name||r.name||String(r.display_name||'').split(',')[0]||'Miejsce'}
+function inferType(r){
+ const txt=(String(r.category)+' '+String(r.type)+' '+String(r.addresstype)+' '+String(r.display_name)).toLowerCase();
+ if(/national park|nature reserve|park|protected/.test(txt))return'park';
+ if(['city','town','village','municipality'].includes(String(r.addresstype))||r.category==='place')return'city';
+ return'attr';
+}
+function nearestDay(lat,lon){const n={lat:+lat,lon:+lon};let best=1,dist=Infinity;for(const p of BASE_P){const d=hav(n,p);if(d<dist){dist=d;best=p.day}}return best}
+function alreadyAdded(r){
+ const osm=`osm:${r.osm_type}:${r.osm_id}`;
+ if(customPoints.some(p=>p.osmKey===osm))return true;
+ const nm=normalizeName(resultName(r)),lat=+r.lat,lon=+r.lon;
+ return P.some(p=>normalizeName(p.name)===nm&&hav({lat,lon},p)<2);
+}
+function searchCache(){return loadJSON(STORAGE_SEARCH,{})}
+function setSearchCache(q,data){const c=searchCache();c[normalizeName(q)]={ts:Date.now(),data};const keys=Object.keys(c).sort((a,b)=>c[b].ts-c[a].ts).slice(0,30);const out={};keys.forEach(k=>out[k]=c[k]);saveJSON(STORAGE_SEARCH,out)}
+function sleep(ms){return new Promise(r=>setTimeout(r,ms))}
+async function searchPlaces(){
+ const input=document.getElementById('placeSearch'),q=input.value.trim(),status=document.getElementById('searchStatus');
+ if(q.length<2){status.innerHTML='<span class="warn">Wpisz co najmniej 2 znaki.</span>';return}
+ const cache=searchCache(),ck=normalizeName(q),cached=cache[ck];
+ if(cached&&Date.now()-cached.ts<30*24*3600*1000){searchResults=cached.data;renderSearchResults();status.textContent='Wyniki z pamięci podręcznej.';return}
+ status.textContent='Szukam w OpenStreetMap…';document.getElementById('searchResults').innerHTML='';
+ const wait=Math.max(0,1100-(Date.now()-lastSearchAt));if(wait)await sleep(wait);lastSearchAt=Date.now();
+ const url='https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&namedetails=1&extratags=1&countrycodes=us&limit=8&accept-language=pl,en&q='+encodeURIComponent(q);
+ try{
+   const res=await fetch(url,{headers:{'Accept':'application/json'}});if(!res.ok)throw new Error('HTTP '+res.status);
+   searchResults=await res.json();setSearchCache(q,searchResults);renderSearchResults();
+   status.textContent=searchResults.length?`Znaleziono: ${searchResults.length}`:'Brak wyników. Spróbuj pełnej angielskiej nazwy.';
+ }catch(e){status.innerHTML='<span class="warn">Nie udało się wyszukać. Spróbuj ponownie za chwilę.</span>'}
+}
+function dayOptions(selectedDay){return D.map(d=>`<option value="${d.day}" ${d.day===selectedDay?'selected':''}>Dzień ${d.day} — ${esc(d.title)}</option>`).join('')}
+function renderSearchResults(){
+ const el=document.getElementById('searchResults');
+ el.innerHTML=searchResults.map((r,i)=>{
+   const name=resultName(r),done=alreadyAdded(r),sug=nearestDay(r.lat,r.lon),addr=String(r.display_name||'');
+   return `<div class="searchResult"><b>${esc(name)}</b><div class="resultAddr">${esc(addr)}</div>${done?'<div class="ok">✓ To miejsce jest już na mapie.</div>':`<div class="searchActions"><select id="add-day-${i}">${dayOptions(sug)}</select><button onclick="addSearchResult(${i})">➕ Dodaj do trasy</button><button onclick="previewSearchResult(${i})">Pokaż na mapie</button></div><div class="status">Sugerowany dzień: ${sug}</div>`}</div>`;
+ }).join('');
+}
+function previewSearchResult(i){const r=searchResults[i];if(!r)return;map.setView([+r.lat,+r.lon],12);L.popup().setLatLng([+r.lat,+r.lon]).setContent(`<b>${esc(resultName(r))}</b><br>${esc(r.display_name||'')}`).openOn(map)}
+function addSearchResult(i){
+ const r=searchResults[i];if(!r||alreadyAdded(r))return;
+ const day=+document.getElementById('add-day-'+i).value,name=resultName(r),osmKey=`osm:${r.osm_type}:${r.osm_id}`;
+ const p={id:'u-'+Date.now()+'-'+Math.random().toString(36).slice(2,7),name,lat:+r.lat,lon:+r.lon,type:inferType(r),day,desc:'Miejsce dodane z wyszukiwarki OpenStreetMap. '+String(r.display_name||''),osmKey,userAdded:true};
+ customPoints.push(p);selected.add(String(p.id));saveJSON(STORAGE_SELECTED,[...selected]);rebuildPoints();rebuildMarkers();renderSaved();renderSearchResults();
+ const m=markers.get(String(p.id));map.setView([p.lat,p.lon],12);if(m)m.openPopup();
+ document.getElementById('daySelect').value=day;showDay(day);
+ document.getElementById('searchStatus').innerHTML=`<span class="ok">Dodano: ${esc(name)} — dzień ${day}. Trasa dnia została przeliczona.</span>`;
+}
+function removeCustom(id){
+ const p=getPoint(id);if(!p||!p.userAdded)return;
+ if(!confirm(`Usunąć „${p.name}” z mapy?`))return;
+ customPoints=customPoints.filter(x=>String(x.id)!==String(id));selected.delete(String(id));saveJSON(STORAGE_SELECTED,[...selected]);rebuildPoints();rebuildMarkers();renderSaved();renderSearchResults();
+ const d=+document.getElementById('daySelect').value;if(d)showDay(d);
+}
+function exportMyPlaces(){
+ const data={version:5,exportedAt:new Date().toISOString(),points:customPoints};const blob=new Blob([JSON.stringify(data,null,2)],{type:'application/json'});const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='usa-trip-moje-atrakcje.json';a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)
+}
+function importMyPlaces(file){
+ if(!file)return;const rd=new FileReader();rd.onload=()=>{try{const obj=JSON.parse(rd.result),pts=Array.isArray(obj)?obj:obj.points;if(!Array.isArray(pts))throw 0;const byKey=new Set(customPoints.map(p=>p.osmKey||String(p.id)));for(const p of pts){const k=p.osmKey||String(p.id);if(!byKey.has(k)&&p.name&&Number.isFinite(+p.lat)&&Number.isFinite(+p.lon)){customPoints.push({...p,id:String(p.id||('u-'+Date.now()+Math.random())),userAdded:true});byKey.add(k)}}rebuildPoints();rebuildMarkers();renderSaved();alert('Import zakończony.')}catch(e){alert('Nieprawidłowy plik JSON.') }};rd.readAsText(file)
+}
+
+rebuildPoints();
+rebuildMarkers();
+renderSaved();
 fitAll();
-showRouteMetrics();
 </script>
 </body></html>
